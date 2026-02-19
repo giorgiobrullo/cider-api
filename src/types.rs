@@ -700,3 +700,305 @@ pub struct AmApiRequest {
     /// Apple Music API path (e.g. `"/v1/catalog/ca/search?term=…"`).
     pub path: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── NowPlaying deserialization ──
+
+    #[test]
+    fn deserialize_now_playing_full() {
+        let json = r#"{
+            "name": "Never Be Like You",
+            "artistName": "Flume",
+            "albumName": "Skin",
+            "artwork": {
+                "width": 3000,
+                "height": 3000,
+                "url": "https://example.com/{w}x{h}bb.jpg"
+            },
+            "durationInMillis": 234000,
+            "playParams": { "id": "1719861213", "kind": "song" },
+            "url": "https://music.apple.com/ca/album/skin/1719860281",
+            "isrc": "AUUM71600506",
+            "currentPlaybackTime": 42.5,
+            "remainingTime": 191.5,
+            "shuffleMode": 1,
+            "repeatMode": 0,
+            "inFavorites": true,
+            "inLibrary": true,
+            "genreNames": ["Electronic", "Music"],
+            "trackNumber": 3,
+            "discNumber": 1,
+            "releaseDate": "2016-05-27T12:00:00Z",
+            "hasLyrics": true,
+            "isAppleDigitalMaster": true,
+            "audioTraits": ["lossless", "lossy-stereo"],
+            "previews": [{"url": "https://audio-ssl.itunes.apple.com/preview.m4a"}]
+        }"#;
+
+        let track: NowPlaying = serde_json::from_str(json).unwrap();
+        assert_eq!(track.name, "Never Be Like You");
+        assert_eq!(track.artist_name, "Flume");
+        assert_eq!(track.album_name, "Skin");
+        assert_eq!(track.duration_in_millis, 234000);
+        assert_eq!(track.song_id(), Some("1719861213"));
+        assert!(track.in_favorites);
+        assert!(track.in_library);
+        assert_eq!(track.genre_names.len(), 2);
+        assert_eq!(track.track_number, 3);
+        assert!(track.has_lyrics);
+        assert!(track.is_apple_digital_master);
+        assert_eq!(track.previews.len(), 1);
+    }
+
+    #[test]
+    fn deserialize_now_playing_minimal() {
+        let json = r#"{"name": "Some Station"}"#;
+        let track: NowPlaying = serde_json::from_str(json).unwrap();
+        assert_eq!(track.name, "Some Station");
+        assert_eq!(track.artist_name, "");
+        assert_eq!(track.duration_in_millis, 0);
+        assert!(track.song_id().is_none());
+        assert!(!track.in_favorites);
+        assert!(track.genre_names.is_empty());
+    }
+
+    #[test]
+    fn deserialize_now_playing_empty_object() {
+        let track: NowPlaying = serde_json::from_str("{}").unwrap();
+        assert_eq!(track.name, "");
+        assert!(track.play_params.is_none());
+    }
+
+    // ── Helper methods ──
+
+    #[test]
+    fn artwork_url_for_size_replaces_placeholders() {
+        let art = Artwork {
+            url: "https://example.com/{w}x{h}bb.jpg".into(),
+            width: 3000,
+            height: 3000,
+            ..Default::default()
+        };
+        assert_eq!(art.url_for_size(300), "https://example.com/300x300bb.jpg");
+    }
+
+    #[test]
+    fn artwork_url_for_size_no_placeholders() {
+        let art = Artwork {
+            url: "https://example.com/static.jpg".into(),
+            ..Default::default()
+        };
+        assert_eq!(art.url_for_size(300), "https://example.com/static.jpg");
+    }
+
+    #[test]
+    fn now_playing_current_position_ms() {
+        let track: NowPlaying = serde_json::from_str(r#"{"currentPlaybackTime": 42.567}"#).unwrap();
+        assert_eq!(track.current_position_ms(), 42567);
+    }
+
+    #[test]
+    fn now_playing_current_position_ms_zero() {
+        let track: NowPlaying = serde_json::from_str("{}").unwrap();
+        assert_eq!(track.current_position_ms(), 0);
+    }
+
+    #[test]
+    fn now_playing_current_position_ms_negative_clamped() {
+        let track: NowPlaying = serde_json::from_str(r#"{"currentPlaybackTime": -0.5}"#).unwrap();
+        assert_eq!(track.current_position_ms(), 0);
+    }
+
+    #[test]
+    fn now_playing_artwork_url_delegates() {
+        let track: NowPlaying = serde_json::from_str(
+            r#"{"artwork": {"url": "https://example.com/{w}x{h}bb.jpg"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            track.artwork_url(600),
+            "https://example.com/600x600bb.jpg"
+        );
+    }
+
+    #[test]
+    fn queue_item_is_current_true() {
+        let item: QueueItem =
+            serde_json::from_str(r#"{"_state": {"current": 2}}"#).unwrap();
+        assert!(item.is_current());
+    }
+
+    #[test]
+    fn queue_item_is_current_false_when_not_2() {
+        let item: QueueItem =
+            serde_json::from_str(r#"{"_state": {"current": 1}}"#).unwrap();
+        assert!(!item.is_current());
+    }
+
+    #[test]
+    fn queue_item_is_current_false_when_no_state() {
+        let item: QueueItem = serde_json::from_str("{}").unwrap();
+        assert!(!item.is_current());
+    }
+
+    // ── Request body serialization ──
+
+    #[test]
+    fn play_item_request_renames_type() {
+        let req = PlayItemRequest {
+            item_type: "songs".into(),
+            id: "123".into(),
+        };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["type"], "songs");
+        assert_eq!(json["id"], "123");
+        assert!(json.get("item_type").is_none());
+    }
+
+    #[test]
+    fn seek_request_serialization() {
+        let req = SeekRequest { position: 30.5 };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert!((json["position"].as_f64().unwrap() - 30.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn volume_request_serialization() {
+        let req = VolumeRequest { volume: 0.75 };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert!((json["volume"].as_f64().unwrap() - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn rating_request_serialization() {
+        let req = RatingRequest { rating: -1 };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["rating"], -1);
+    }
+
+    #[test]
+    fn queue_move_request_omits_none_return_queue() {
+        let req = QueueMoveRequest {
+            start_index: 3,
+            destination_index: 1,
+            return_queue: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("returnQueue"));
+        let val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(val["startIndex"], 3);
+        assert_eq!(val["destinationIndex"], 1);
+    }
+
+    #[test]
+    fn queue_move_request_includes_return_queue_when_some() {
+        let req = QueueMoveRequest {
+            start_index: 1,
+            destination_index: 5,
+            return_queue: Some(true),
+        };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["returnQueue"], true);
+    }
+
+    #[test]
+    fn queue_remove_request_serialization() {
+        let req = QueueRemoveRequest { index: 7 };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["index"], 7);
+    }
+
+    #[test]
+    fn amapi_request_serialization() {
+        let req = AmApiRequest {
+            path: "/v1/catalog/us/search?term=flume".into(),
+        };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["path"], "/v1/catalog/us/search?term=flume");
+    }
+
+    #[test]
+    fn play_url_request_serialization() {
+        let req = PlayUrlRequest {
+            url: "https://music.apple.com/ca/album/skin/1719860281".into(),
+        };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            json["url"],
+            "https://music.apple.com/ca/album/skin/1719860281"
+        );
+    }
+
+    #[test]
+    fn play_item_href_request_serialization() {
+        let req = PlayItemHrefRequest {
+            href: "/v1/catalog/ca/songs/123".into(),
+        };
+        let json: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(json["href"], "/v1/catalog/ca/songs/123");
+    }
+
+    // ── ApiResponse flatten deserialization ──
+
+    #[test]
+    fn api_response_is_playing() {
+        let json = r#"{"status":"ok","is_playing":true}"#;
+        let resp: ApiResponse<IsPlayingResponse> = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.status, "ok");
+        assert!(resp.data.is_playing);
+    }
+
+    #[test]
+    fn api_response_volume() {
+        let json = r#"{"status":"ok","volume":0.65}"#;
+        let resp: ApiResponse<VolumeResponse> = serde_json::from_str(json).unwrap();
+        assert!((resp.data.volume - 0.65).abs() < 0.001);
+    }
+
+    #[test]
+    fn api_response_repeat_mode() {
+        let json = r#"{"status":"ok","value":2}"#;
+        let resp: ApiResponse<RepeatModeResponse> = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.data.value, 2);
+    }
+
+    #[test]
+    fn api_response_shuffle_mode() {
+        let json = r#"{"status":"ok","value":1}"#;
+        let resp: ApiResponse<ShuffleModeResponse> = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.data.value, 1);
+    }
+
+    #[test]
+    fn api_response_autoplay() {
+        let json = r#"{"status":"ok","value":true}"#;
+        let resp: ApiResponse<AutoplayResponse> = serde_json::from_str(json).unwrap();
+        assert!(resp.data.value);
+    }
+
+    #[test]
+    fn api_response_now_playing() {
+        let json = r#"{"status":"ok","info":{"name":"Test Track","artistName":"Artist"}}"#;
+        let resp: ApiResponse<NowPlayingResponse> = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.data.info.name, "Test Track");
+        assert_eq!(resp.data.info.artist_name, "Artist");
+    }
+
+    // ── Queue item deserialization ──
+
+    #[test]
+    fn deserialize_queue_item_array() {
+        let json = r#"[
+            {"id": "123", "type": "song", "_state": {"current": 2}, "attributes": {"name": "Track 1", "artistName": "Artist"}},
+            {"id": "456", "type": "song", "attributes": {"name": "Track 2", "artistName": "Artist"}}
+        ]"#;
+        let items: Vec<QueueItem> = serde_json::from_str(json).unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items[0].is_current());
+        assert!(!items[1].is_current());
+        assert_eq!(items[0].attributes.as_ref().unwrap().name, "Track 1");
+    }
+}

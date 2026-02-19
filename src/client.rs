@@ -134,9 +134,31 @@ impl CiderClient {
         }
     }
 
+    /// Create a client targeting an arbitrary base URL.
+    ///
+    /// This is intended for testing (e.g. pointing at a mock server).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_base_url(base_url: impl Into<String>) -> Self {
+        let http = Client::builder()
+            .connect_timeout(CONNECTION_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .pool_max_idle_per_host(2)
+            .pool_idle_timeout(Duration::from_secs(10))
+            .tcp_keepalive(None)
+            .build()
+            .expect("Failed to build HTTP client");
+
+        Self {
+            http,
+            base_url: base_url.into(),
+            api_token: None,
+        }
+    }
+
     /// Attach an API token for authentication.
     ///
-    /// The token is sent in the `apitoken` header on every request.
+    /// The token is sent in the `apptoken` header on every request.
     /// Generate one in Cider under **Settings > Connectivity > Manage External
     /// Application Access**.
     #[must_use]
@@ -152,7 +174,7 @@ impl CiderClient {
         let url = format!("{}/api/v1/playback{}", self.base_url, path);
         let mut req = self.http.request(method, &url);
         if let Some(token) = &self.api_token {
-            req = req.header("apitoken", token);
+            req = req.header("apptoken", token);
         }
         req
     }
@@ -162,7 +184,7 @@ impl CiderClient {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.http.request(method, &url);
         if let Some(token) = &self.api_token {
-            req = req.header("apitoken", token);
+            req = req.header("apptoken", token);
         }
         req
     }
@@ -795,5 +817,80 @@ mod tests {
         let a = CiderClient::new();
         let b = a.clone();
         assert_eq!(a.base_url, b.base_url);
+    }
+
+    #[test]
+    fn default_trait_same_as_new() {
+        let a = CiderClient::new();
+        let b = CiderClient::default();
+        assert_eq!(a.base_url, b.base_url);
+        assert_eq!(a.api_token, b.api_token);
+    }
+
+    #[test]
+    fn with_base_url_sets_arbitrary_url() {
+        let client = CiderClient::with_base_url("http://example.com:1234");
+        assert_eq!(client.base_url, "http://example.com:1234");
+        assert!(client.api_token.is_none());
+    }
+
+    #[test]
+    fn with_token_is_chainable() {
+        let client = CiderClient::with_port(8080).with_token("tok");
+        assert_eq!(client.base_url, "http://127.0.0.1:8080");
+        assert_eq!(client.api_token, Some("tok".to_string()));
+    }
+
+    #[test]
+    fn with_token_accepts_owned_string() {
+        let token = String::from("owned-token");
+        let client = CiderClient::new().with_token(token);
+        assert_eq!(client.api_token, Some("owned-token".to_string()));
+    }
+
+    #[test]
+    fn request_builds_correct_url() {
+        let client = CiderClient::with_port(9999);
+        let req = client.request(reqwest::Method::GET, "/active");
+        let built = req.build().unwrap();
+        assert_eq!(
+            built.url().as_str(),
+            "http://127.0.0.1:9999/api/v1/playback/active"
+        );
+    }
+
+    #[test]
+    fn request_raw_builds_correct_url() {
+        let client = CiderClient::with_port(9999);
+        let req = client.request_raw(reqwest::Method::POST, "/api/v1/amapi/run-v3");
+        let built = req.build().unwrap();
+        assert_eq!(
+            built.url().as_str(),
+            "http://127.0.0.1:9999/api/v1/amapi/run-v3"
+        );
+    }
+
+    #[test]
+    fn request_includes_token_header() {
+        let client = CiderClient::new().with_token("my-secret");
+        let req = client.request(reqwest::Method::GET, "/active");
+        let built = req.build().unwrap();
+        assert_eq!(built.headers().get("apptoken").unwrap(), "my-secret");
+    }
+
+    #[test]
+    fn request_omits_token_header_when_none() {
+        let client = CiderClient::new();
+        let req = client.request(reqwest::Method::GET, "/active");
+        let built = req.build().unwrap();
+        assert!(built.headers().get("apptoken").is_none());
+    }
+
+    #[test]
+    fn request_raw_includes_token_header() {
+        let client = CiderClient::new().with_token("secret");
+        let req = client.request_raw(reqwest::Method::POST, "/api/v1/amapi/run-v3");
+        let built = req.build().unwrap();
+        assert_eq!(built.headers().get("apptoken").unwrap(), "secret");
     }
 }
