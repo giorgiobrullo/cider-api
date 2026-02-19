@@ -3,6 +3,8 @@
 </p>
 
 <p align="center">
+  <a href="https://crates.io/crates/cider-api"><img src="https://img.shields.io/crates/v/cider-api?style=for-the-badge&color=f74c00" alt="crates.io"></a>
+  <a href="https://docs.rs/cider-api"><img src="https://img.shields.io/docsrs/cider-api?style=for-the-badge" alt="docs.rs"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-f74c00?style=for-the-badge&logo=rust&logoColor=white" alt="Rust"></a>
 </p>
 
