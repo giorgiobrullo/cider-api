@@ -57,7 +57,7 @@ If Cider has API authentication enabled, pass the token via `with_token`:
 let client = CiderClient::new().with_token("your-api-token");
 ```
 
-The token is sent in the `apitoken` header on every request (no `Bearer` prefix). Generate one in Cider under **Settings > Connectivity > Manage External Application Access**.
+The token is sent in the `apptoken` header on every request (no `Bearer` prefix). Generate one in Cider under **Settings > Connectivity > Manage External Application Access**.
 
 ## API coverage
 
