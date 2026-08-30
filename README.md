@@ -74,7 +74,7 @@ The token is sent in the `apptoken` header on every request (no `Bearer` prefix)
 
 ## Response types
 
-All response types are fully typed with serde and match the [Cider RPC documentation](https://cider.sh/docs/client/rpc).
+All response types are fully typed with serde and match the [Cider RPC documentation](https://cider.gitbook.io/welcome-to-gitbook/docs/1.client/rpc).
 
 ### `NowPlaying`
 
