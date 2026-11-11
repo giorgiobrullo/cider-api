@@ -62,6 +62,9 @@ impl Library<'_> {
 
     /// Mark the current track as loved.
     ///
+    /// Cider also adds the track to the library if it was not in it;
+    /// [`clear_rating`](Self::clear_rating) does not remove it again.
+    ///
     /// # Errors
     ///
     /// Returns [`CiderError`] if the request fails or the server rejects it.

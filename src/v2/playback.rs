@@ -114,7 +114,11 @@ impl Playback<'_> {
         exec(self.v2.req(Method::POST, "/playback/pause")).await
     }
 
-    /// Stop playback and unload the current track.
+    /// Stop playback.
+    ///
+    /// On Cider 4.0 the queue is kept and [`state`](Self::state) reports
+    /// [`PlaybackState::Paused`](super::PlaybackState::Paused) afterwards,
+    /// not `Stopped`.
     ///
     /// # Errors
     ///
