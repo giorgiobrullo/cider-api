@@ -105,8 +105,9 @@ impl Lyrics<'_> {
     ///
     /// `language` is an ISO 639-1 code from [`languages`](Self::languages).
     /// Translations are generated on demand: the first request for a song
-    /// can fail with `LYRICS_TRANSLATIONS_NOT_FOUND` or time out while one
-    /// is being prepared, and succeed shortly after.
+    /// can fail with `LYRICS_TRANSLATIONS_NOT_FOUND`, or with
+    /// [`CiderError::Interrupted`] when generating it takes Cider longer
+    /// than 30 seconds, and succeed on a later attempt.
     ///
     /// # Errors
     ///

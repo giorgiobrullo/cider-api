@@ -486,3 +486,41 @@ async fn live_v2_catalog_lyrics_config() {
     let tokens = v2.client_tokens().await.unwrap();
     assert!(!tokens.storefront.is_empty());
 }
+
+// Nudges the volume by 0.01 and restores it, to have an event to observe.
+#[cfg(feature = "events")]
+#[tokio::test]
+async fn live_v2_events_report_volume_changes() {
+    use cider_api::v2::Event;
+    use std::time::Duration;
+
+    let client = skip_unless_live!();
+    if client.server_info().await.unwrap().is_none() {
+        eprintln!("Skipping: this Cider has no v2 API");
+        return;
+    }
+    let v2 = client.v2();
+    let mut events = v2.events().await.unwrap();
+
+    let original = v2.audio().volume().await.unwrap();
+    let nudged = if original > 0.5 {
+        original - 0.01
+    } else {
+        original + 0.01
+    };
+    v2.audio().set_volume(nudged).await.unwrap();
+
+    let seen = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match events.next().await {
+                Some(Ok(Event::VolumeChanged(v))) if (v - nudged).abs() < 0.005 => break true,
+                Some(Ok(_)) => {}
+                Some(Err(e)) => panic!("event stream failed: {e}"),
+                None => break false,
+            }
+        }
+    })
+    .await;
+    v2.audio().set_volume(original).await.unwrap();
+    assert_eq!(seen, Ok(true), "no VolumeChanged event within 5 s");
+}

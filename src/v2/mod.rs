@@ -47,6 +47,8 @@
 //! | [`V2::lyrics`] | `lyrics` | Lyrics, community variations, translations |
 //! | [`V2::config`] | `config` | Read-only Cider settings |
 //! | [`V2::client_tokens`] | `account` | `MusicKit` tokens |
+//! | [`V2::plugins`] | `plugins` | Installing plugins |
+//! | `V2::events` | none | Real-time events (cargo feature `events`) |
 //!
 //! A token created without scopes can call everything.
 //!
@@ -56,13 +58,22 @@
 //! [`CiderError::Unsupported`]. API-level failures come back as
 //! [`CiderError::Server`] with Cider's machine-readable `code`
 //! (e.g. `"INSUFFICIENT_SCOPE"`, `"RPC_TIMEOUT"`, `"INVALID_REQUEST"`).
+//!
+//! Cider 4.0 closes the connection of any request it has not answered
+//! within 30 seconds; that surfaces as [`CiderError::Interrupted`]. It only
+//! matters for calls that wait on the user or on a slow backend:
+//! [`V2::request_auth`], [`Plugins::install`] and
+//! [`Lyrics::translations`].
 
 mod audio;
 mod catalog;
+#[cfg(feature = "events")]
+mod events;
 mod library;
 mod lyrics;
 mod playback;
 mod playlists;
+mod plugins;
 mod queue;
 mod types;
 
@@ -76,10 +87,16 @@ use crate::client::{CiderClient, CiderError};
 
 pub use audio::Audio;
 pub use catalog::Catalog;
+#[cfg(feature = "events")]
+pub use events::{
+    Event, EventStream, NowPlayingChange, NowPlayingStatus, PlaybackAnchor, PlaybackProgress,
+    PlaybackStateChange, PlaylistChange, PlaylistOperation, Transition, TransitionMode,
+};
 pub use library::Library;
 pub use lyrics::Lyrics;
 pub use playback::Playback;
 pub use playlists::Playlists;
+pub use plugins::{InstalledPlugin, Plugins};
 pub use queue::Queue;
 pub use types::{
     AtmosDeviceMode, AtmosState, AtmosUpdate, AudioQuality, AuthGrant, AutomixState, AutomixUpdate,
@@ -159,6 +176,26 @@ impl<'a> V2<'a> {
         Lyrics { v2: *self }
     }
 
+    /// Plugin installation (scope: `plugins`).
+    #[must_use]
+    pub fn plugins(&self) -> Plugins<'a> {
+        Plugins { v2: *self }
+    }
+
+    /// Connect to Cider's real-time event channel.
+    ///
+    /// Needs no API token and must be called from within a Tokio runtime.
+    /// See [`EventStream`] and [`Event`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CiderError::NotReachable`] if Cider is not running, or
+    /// [`CiderError::Events`] if the handshake fails.
+    #[cfg(feature = "events")]
+    pub async fn events(&self) -> Result<EventStream, CiderError> {
+        events::connect(self.client.base_url()).await
+    }
+
     /// Get information about the running Cider instance.
     ///
     /// Sends `GET /api/v2/client/info`. Prefer
@@ -216,8 +253,15 @@ impl<'a> V2<'a> {
     /// Ask the user to grant this application an API token.
     ///
     /// Cider shows an approval prompt naming `app_name` and the requested
-    /// `scopes`; this call resolves once the user answers, which can take up
-    /// to two minutes. No existing token is needed.
+    /// `scopes`; this call resolves once the user answers. No existing token
+    /// is needed.
+    ///
+    /// Tell your user to answer promptly: Cider 4.0 keeps the prompt open
+    /// for two minutes but closes this request's connection after 30
+    /// seconds, so a slower answer ends in [`CiderError::Interrupted`] and
+    /// an approval given after that point is lost. The prompt stays on
+    /// screen until it is answered or expires, and new requests fail with
+    /// `AUTH_REQUEST_BUSY` in the meantime.
     ///
     /// Sends `POST /api/v2/auth/request`.
     ///
@@ -246,6 +290,9 @@ impl<'a> V2<'a> {
     ///   are refused for 15 minutes.
     ///
     /// For the last two, `retry_after` says how long to wait.
+    ///
+    /// Returns [`CiderError::Interrupted`] if Cider closes the connection
+    /// before the user answers (see above).
     pub async fn request_auth(
         &self,
         app_name: &str,
@@ -295,7 +342,15 @@ impl<'a> V2<'a> {
 pub(crate) async fn send<T: DeserializeOwned>(
     req: RequestBuilder,
 ) -> Result<Envelope<T>, CiderError> {
-    let resp = req.send().await?;
+    let resp = req.send().await.map_err(|e| {
+        // A request that reached Cider but never got a response: the server
+        // closed the socket, which Cider 4.0 does after 30 s of waiting.
+        if e.is_request() && !e.is_timeout() && !e.is_connect() {
+            CiderError::Interrupted(e)
+        } else {
+            CiderError::Http(e)
+        }
+    })?;
     let status = resp.status();
     if status.is_success() {
         return Ok(resp.json().await?);

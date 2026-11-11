@@ -104,8 +104,8 @@ if client.server_info().await?.is_some() {
 | **`v2().playlists()`** | `library` | `create`, `update`, `add_tracks`, `remove_tracks`, `replace_tracks`, `move_track`, `history`, `restore` |
 | **`v2().catalog()`** | `library` | `search`, `get`, `raw` (read-only Apple Music API proxy) |
 | **`v2().lyrics()`** | `lyrics` | `current`, `get`, `variations`, `variation`, `translations`, `languages` |
-
-Not covered: plugin installation and the Socket.IO event stream.
+| **`v2().plugins()`** | `plugins` | `install` |
+| **`v2().events()`** | — | real-time event stream (cargo feature `events`) |
 
 ### Errors
 
@@ -118,6 +118,32 @@ match client.v2().audio().volume().await {
     Err(e) => println!("{e}"),
 }
 ```
+
+`CiderError::Interrupted` means Cider closed the connection before answering. Cider 4.0 does this to any request it has not answered within 30 seconds, which is shorter than its own consent prompts — see the note under scoped tokens.
+
+### Events
+
+With the `events` feature, `v2().events()` connects to Cider's Socket.IO channel and yields typed events. No token is needed.
+
+```toml
+cider-api = { version = "0.2", features = ["events"] }
+```
+
+```rust
+use cider_api::v2::Event;
+
+let mut events = client.v2().events().await?;
+while let Some(event) = events.next().await {
+    match event? {
+        Event::NowPlayingItemChanged(change) => println!("now playing {}", change.track.name),
+        Event::PlaybackStateChanged(change) => println!("{:?}", change.state),
+        Event::VolumeChanged(volume) => println!("volume {volume}"),
+        _ => {}
+    }
+}
+```
+
+Events cover the current track, playback state and position, transitions, volume/repeat/shuffle, every audio setting, the queue and playlist writes. Anything this crate has no type for arrives as `Event::Other { kind, data }`. Cider may deliver the same event twice. The stream ends when Cider closes the connection; call `events()` again to reconnect.
 
 ### Scoped tokens
 
@@ -132,6 +158,8 @@ let grant = CiderClient::new()
     .await?;
 let client = CiderClient::new().with_token(grant.token);
 ```
+
+Ask the user to answer within 30 seconds. Cider 4.0 keeps the prompt open for two minutes but closes the request's connection after 30 seconds; a later answer ends in `CiderError::Interrupted` and the token is lost. The same applies to `plugins().install()`.
 
 ### Editing playlists
 

@@ -67,6 +67,22 @@ pub enum CiderError {
     #[error("API error: {0}")]
     Api(String),
 
+    /// Cider closed the connection before sending a response (v2 API only).
+    ///
+    /// Cider 4.0 drops any request it has not answered within 30 seconds.
+    /// That is shorter than some of its own waits — the consent prompts of
+    /// [`V2::request_auth`](crate::v2::V2::request_auth) and
+    /// [`Plugins::install`](crate::v2::Plugins::install), or a lyrics
+    /// translation being generated — so those calls end with this error
+    /// when the user (or Cider) takes longer. The operation may still
+    /// complete on Cider's side.
+    #[error("Cider closed the connection before answering")]
+    Interrupted(#[source] reqwest::Error),
+
+    /// The event stream failed (feature `events`).
+    #[error("Event stream error: {0}")]
+    Events(String),
+
     /// The running Cider does not expose the requested API.
     ///
     /// Returned by [`v2`](crate::v2) methods on Cider versions older than 4.
@@ -232,6 +248,11 @@ impl CiderClient {
             req = req.header("apptoken", token);
         }
         req
+    }
+
+    #[cfg(feature = "events")]
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     /// Build a request under an arbitrary API path.

@@ -886,3 +886,91 @@ async fn request_auth_waits_longer_than_the_default_timeout() {
         .unwrap();
     assert_eq!(grant.token, "abc");
 }
+
+// ── Plugins ──
+
+#[tokio::test]
+async fn plugin_install_returns_the_manifest() {
+    let (server, client) = common::setup().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v2/plugins/install"))
+        .and(body_json(
+            json!({ "url": "https://example.com/plugin.zip" }),
+        ))
+        .respond_with(ok(json!({
+            "identifier": "com.example.plugin", "name": "Example", "version": "1.2.0",
+            "installPath": "/plugins/com.example.plugin"
+        })))
+        .mount(&server)
+        .await;
+
+    let plugin = client
+        .v2()
+        .plugins()
+        .install("https://example.com/plugin.zip")
+        .await
+        .unwrap();
+    assert_eq!(plugin.identifier, "com.example.plugin");
+    assert_eq!(plugin.version, "1.2.0");
+    assert_eq!(plugin.install_path, "/plugins/com.example.plugin");
+}
+
+#[tokio::test]
+async fn plugin_install_denied_is_a_server_error() {
+    let (server, client) = common::setup().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v2/plugins/install"))
+        .respond_with(err(
+            403,
+            "PLUGIN_INSTALL_DENIED",
+            "User denied the plugin install.",
+        ))
+        .mount(&server)
+        .await;
+
+    let e = client
+        .v2()
+        .plugins()
+        .install("https://example.com/plugin.zip")
+        .await
+        .unwrap_err();
+    assert_eq!(e.code(), Some("PLUGIN_INSTALL_DENIED"));
+}
+
+// ── Connection closed by Cider ──
+
+/// Cider 4.0 destroys the socket of a request it has not answered in 30 s.
+/// Reproduce that with a server that reads the request and hangs up.
+#[tokio::test]
+async fn connection_closed_mid_request_is_interrupted() {
+    use tokio::io::AsyncReadExt;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 4096];
+        let _ = socket.read(&mut buf).await;
+        // Dropping the socket closes it without a response.
+    });
+
+    let client = cider_api::CiderClient::with_base_url(format!("http://{addr}"));
+    let e = client
+        .v2()
+        .request_auth("My App", &[Scope::Playback])
+        .await
+        .unwrap_err();
+    assert!(matches!(e, CiderError::Interrupted(_)), "got {e:?}");
+}
+
+#[tokio::test]
+async fn unreachable_server_is_not_reported_as_interrupted() {
+    // Bind and drop to get a port nothing listens on.
+    let port = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap().port()
+    };
+    let client = cider_api::CiderClient::with_port(port);
+    let e = client.v2().playback().state().await.unwrap_err();
+    assert!(matches!(e, CiderError::Http(_)), "got {e:?}");
+}

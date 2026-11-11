@@ -73,6 +73,11 @@
 //! snapshots, explicit repeat/shuffle setters, a paginated queue, scoped
 //! tokens — exposed through [`CiderClient::v2`]. Use
 //! [`CiderClient::server_info`] to check which one you are talking to.
+//!
+//! ## Cargo features
+//!
+//! - `events` — real-time event stream over Cider's Socket.IO channel
+//!   (`client.v2().events()`). Off by default.
 
 mod client;
 mod types;

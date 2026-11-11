@@ -18,8 +18,11 @@ unchanged and keep working on Cider 2, 3 and 4. Tested against Cider 4.0.40.
   - `config()` / `config_path()`: read-only Cider settings.
   - `client_tokens()`: MusicKit tokens (redacted in `Debug` output).
   - `request_auth()` / `request_auth_with_image()`: ask the user for a scoped API token via Cider's approval prompt.
+  - `plugins().install()`: install a plugin from a `.zip` URL, with the user's consent.
+- Cargo feature `events`: `v2().events()` connects to Cider's Socket.IO channel and yields typed `Event`s (current track, playback state and position, transitions, volume, repeat, shuffle, audio settings, queue, playlist writes), with `Event::Other` for anything unknown. Off by default; adds `tokio-tungstenite`.
 - `CiderClient::server_info()` — detects v2 support; returns `None` on older Cider.
 - `CiderError::Server { status, code, message, retry_after }` for structured v2 errors, `CiderError::code()`, and `CiderError::Unsupported` for v2 calls against a Cider without v2.
+- `CiderError::Interrupted` for v2 requests whose connection Cider closed before answering. Cider 4.0 does this after 30 seconds, which affects calls that wait on the user (`request_auth`, `plugins().install()`) or on a slow backend (`lyrics().translations()`).
 - `CiderClient::queue_change_to_index()` (v1).
 - CI: formatting, clippy, tests, docs and an MSRV check.
 

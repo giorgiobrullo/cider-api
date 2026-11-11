@@ -24,8 +24,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets
+      - run: cargo clippy --all-targets --all-features
       - run: cargo test
-      - run: cargo doc --no-deps
+      - run: cargo test --all-features
+      - run: cargo doc --no-deps --all-features
 
   msrv:
     runs-on: ubuntu-latest
@@ -37,3 +39,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Library only: dev-dependencies do not have to build on the MSRV.
       - run: cargo check --lib
+      - run: cargo check --lib --all-features

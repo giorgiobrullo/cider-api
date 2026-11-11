@@ -16,6 +16,10 @@ exclude = [".github/"]
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+# Real-time event stream over Cider's Socket.IO endpoint (`V2::events`).
+events = ["dep:tokio-tungstenite", "dep:futures-util", "dep:tokio"]
+
 [dependencies]
 # HTTP client
 reqwest = { version = "0.12", features = ["json"] }
@@ -30,6 +34,11 @@ thiserror = "2"
 # Logging
 tracing = "0.1"
 
+# Event stream (feature `events`)
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "time"], optional = true }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"], optional = true }
+
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "time"] }
 wiremock = "0.6"
