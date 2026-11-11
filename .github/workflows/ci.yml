@@ -31,6 +31,10 @@ jobs:
 
   msrv:
     runs-on: ubuntu-latest
+    env:
+      # No lockfile is committed, so resolve to the newest dependency
+      # versions that still support the MSRV rather than the newest overall.
+      CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
