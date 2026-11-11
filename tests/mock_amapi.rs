@@ -16,10 +16,7 @@ async fn amapi_run_v3_sends_path_and_returns_json() {
         .and(body_json(serde_json::json!({
             "path": "/v1/catalog/us/search?term=flume"
         })))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(&apple_response),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(&apple_response))
         .expect(1)
         .mount(&server)
         .await;

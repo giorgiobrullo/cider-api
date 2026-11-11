@@ -99,3 +99,16 @@ async fn clear_queue_ok() {
         .await;
     client.clear_queue().await.unwrap();
 }
+
+#[tokio::test]
+async fn queue_change_to_index_sends_correct_body() {
+    let (server, client) = common::setup().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v1/playback/queue/change-to-index"))
+        .and(body_json(serde_json::json!({ "index": 4 })))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    client.queue_change_to_index(4).await.unwrap();
+}

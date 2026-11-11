@@ -11,10 +11,10 @@ use thiserror::Error;
 use tracing::{debug, instrument, warn};
 
 use crate::types::{
-    AmApiRequest, ApiResponse, AutoplayResponse, IsPlayingResponse, NowPlaying,
-    NowPlayingResponse, PlayItemHrefRequest, PlayItemRequest, PlayUrlRequest, QueueItem,
-    QueueMoveRequest, QueueRemoveRequest, RatingRequest, RepeatModeResponse, SeekRequest,
-    ShuffleModeResponse, VolumeRequest, VolumeResponse,
+    AmApiRequest, ApiResponse, AutoplayResponse, IsPlayingResponse, NowPlaying, NowPlayingResponse,
+    PlayItemHrefRequest, PlayItemRequest, PlayUrlRequest, QueueItem, QueueMoveRequest,
+    QueueRemoveRequest, RatingRequest, RepeatModeResponse, SeekRequest, ShuffleModeResponse,
+    VolumeRequest, VolumeResponse,
 };
 
 /// Default Cider RPC port.
@@ -45,6 +45,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 /// # }
 /// ```
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum CiderError {
     /// An HTTP-level error from [`reqwest`].
     #[error("HTTP request failed: {0}")]
@@ -65,6 +66,51 @@ pub enum CiderError {
     /// Catch-all for unexpected API responses.
     #[error("API error: {0}")]
     Api(String),
+
+    /// The running Cider does not expose the requested API.
+    ///
+    /// Returned by [`v2`](crate::v2) methods on Cider versions older than 4.
+    #[error("This Cider version does not support the requested API")]
+    Unsupported,
+
+    /// Cider rejected the request with a structured error (v2 API only).
+    ///
+    /// `code` is machine-readable, e.g. `"INSUFFICIENT_SCOPE"`,
+    /// `"INVALID_REQUEST"` or `"RPC_TIMEOUT"`.
+    #[error("Cider error {code} (HTTP {status}): {message}")]
+    Server {
+        /// HTTP status code of the response.
+        status: u16,
+        /// Machine-readable error code.
+        code: String,
+        /// Human-readable description.
+        message: String,
+        /// How long to wait before retrying, when Cider sent a
+        /// `Retry-After` header (rate limits).
+        retry_after: Option<Duration>,
+    },
+}
+
+impl CiderError {
+    /// The machine-readable error code, for [`CiderError::Server`] errors.
+    ///
+    /// ```
+    /// # use cider_api::CiderError;
+    /// # fn handle(err: CiderError) {
+    /// match err.code() {
+    ///     Some("INSUFFICIENT_SCOPE") => println!("token lacks a scope"),
+    ///     Some("RPC_TIMEOUT") => println!("Cider's UI did not answer"),
+    ///     _ => println!("{err}"),
+    /// }
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn code(&self) -> Option<&str> {
+        match self {
+            Self::Server { code, .. } => Some(code),
+            _ => None,
+        }
+    }
 }
 
 /// Async client for the [Cider](https://cider.sh) music player REST API.
@@ -96,11 +142,20 @@ pub enum CiderError {
 /// - [`CiderError::Http`] — network or connection failure.
 /// - [`CiderError::Unauthorized`] — invalid API token (HTTP 401/403).
 /// - [`CiderError::Api`] — unexpected response from Cider.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CiderClient {
     http: Client,
     base_url: String,
     api_token: Option<String>,
+}
+
+impl std::fmt::Debug for CiderClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CiderClient")
+            .field("base_url", &self.base_url)
+            .field("api_token", &self.api_token.as_ref().map(|_| "<redacted>"))
+            .finish_non_exhaustive()
+    }
 }
 
 impl CiderClient {
@@ -180,7 +235,11 @@ impl CiderClient {
     }
 
     /// Build a request under an arbitrary API path.
-    fn request_raw(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+    pub(crate) fn request_raw(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+    ) -> reqwest::RequestBuilder {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.http.request(method, &url);
         if let Some(token) = &self.api_token {
@@ -189,11 +248,39 @@ impl CiderClient {
         req
     }
 
+    // ── v2 API (Cider 4+) ────────────────────────────────────────────────
+
+    /// Access the v2 API, available on Cider 4 and later.
+    ///
+    /// See the [`v2`](crate::v2) module for details. The methods directly on
+    /// `CiderClient` use the v1 API and work on every Cider version.
+    #[must_use]
+    pub fn v2(&self) -> crate::v2::V2<'_> {
+        crate::v2::V2::new(self)
+    }
+
+    /// Identify the running Cider and detect v2 support.
+    ///
+    /// Returns `Ok(Some(info))` on Cider 4+, and `Ok(None)` on older versions
+    /// that only speak the v1 API.
+    ///
+    /// # Errors
+    ///
+    /// - [`CiderError::Unauthorized`] if the token is missing or wrong.
+    /// - [`CiderError::Http`] if Cider is not reachable.
+    pub async fn server_info(&self) -> Result<Option<crate::v2::ClientInfo>, CiderError> {
+        match self.v2().client_info().await {
+            Ok(info) => Ok(Some(info)),
+            Err(CiderError::Unsupported) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     // ── Status ───────────────────────────────────────────────────────────
 
     /// Check that Cider is running and the RPC server is reachable.
     ///
-    /// Sends `GET /active` — Cider responds with `204 No Content` if alive.
+    /// Sends `GET /active` — Cider responds with `200` or `204` if alive.
     ///
     /// # Errors
     ///
@@ -519,10 +606,7 @@ impl CiderClient {
     /// Returns [`CiderError`] on network failure. Returns `Ok(vec![])` (not an
     /// error) if the queue is empty or the format is unrecognised.
     pub async fn get_queue(&self) -> Result<Vec<QueueItem>, CiderError> {
-        let resp = self
-            .request(reqwest::Method::GET, "/queue")
-            .send()
-            .await?;
+        let resp = self.request(reqwest::Method::GET, "/queue").send().await?;
 
         let status = resp.status();
         if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::NO_CONTENT {
@@ -538,8 +622,10 @@ impl CiderClient {
 
     /// Move a queue item from one position to another.
     ///
-    /// Both indices are **1-based**. The queue includes history items, so the
-    /// first visible "Up Next" item may not be at index 1.
+    /// Both indices are **0-based** positions in the full queue, which
+    /// includes history items — so the first "Up Next" item is usually not
+    /// at index 0. (Verified on Cider 4; Cider's v1 documentation describes
+    /// them as 1-based.)
     ///
     /// # Errors
     ///
@@ -561,13 +647,31 @@ impl CiderClient {
         Ok(())
     }
 
-    /// Remove a queue item by its **1-based** index.
+    /// Remove a queue item by its **0-based** index in the full queue
+    /// (history included). Verified on Cider 4; Cider's v1 documentation
+    /// describes the index as 1-based.
     ///
     /// # Errors
     ///
     /// Returns [`CiderError`] if the request fails or the server rejects it.
     pub async fn queue_remove_by_index(&self, index: u32) -> Result<(), CiderError> {
         self.request(reqwest::Method::POST, "/queue/remove-by-index")
+            .json(&QueueRemoveRequest { index })
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
+    /// Jump to the queue item at the **0-based** `index` and play it.
+    ///
+    /// Sends `POST /queue/change-to-index`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CiderError`] if the request fails or the server rejects it.
+    pub async fn queue_change_to_index(&self, index: u32) -> Result<(), CiderError> {
+        self.request(reqwest::Method::POST, "/queue/change-to-index")
             .json(&QueueRemoveRequest { index })
             .send()
             .await?

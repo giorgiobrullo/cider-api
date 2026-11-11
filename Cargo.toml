@@ -1,8 +1,8 @@
 [package]
 name = "cider-api"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.85"
 authors = ["Giorgio Brullo"]
 license = "MPL-2.0"
 description = "Async Rust client for the Cider music player REST API"
@@ -11,6 +11,10 @@ repository = "https://github.com/giorgiobrullo/cider-api"
 homepage = "https://docs.rs/cider-api"
 keywords = ["cider", "apple-music", "music", "playback", "async"]
 categories = ["api-bindings", "multimedia::audio", "asynchronous"]
+exclude = [".github/"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 # HTTP client

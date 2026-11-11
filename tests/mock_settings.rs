@@ -19,9 +19,24 @@ macro_rules! test_fire_and_forget {
     };
 }
 
-test_fire_and_forget!(toggle_repeat_ok, toggle_repeat, "POST", "/api/v1/playback/toggle-repeat");
-test_fire_and_forget!(toggle_shuffle_ok, toggle_shuffle, "POST", "/api/v1/playback/toggle-shuffle");
-test_fire_and_forget!(toggle_autoplay_ok, toggle_autoplay, "POST", "/api/v1/playback/toggle-autoplay");
+test_fire_and_forget!(
+    toggle_repeat_ok,
+    toggle_repeat,
+    "POST",
+    "/api/v1/playback/toggle-repeat"
+);
+test_fire_and_forget!(
+    toggle_shuffle_ok,
+    toggle_shuffle,
+    "POST",
+    "/api/v1/playback/toggle-shuffle"
+);
+test_fire_and_forget!(
+    toggle_autoplay_ok,
+    toggle_autoplay,
+    "POST",
+    "/api/v1/playback/toggle-autoplay"
+);
 
 #[tokio::test]
 async fn get_repeat_mode_returns_value() {

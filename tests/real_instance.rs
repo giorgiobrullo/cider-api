@@ -122,7 +122,10 @@ async fn live_seek() {
     if let Some(track) = client.now_playing().await.unwrap() {
         // Should be roughly around 10s (allow generous margin)
         let pos = track.current_playback_time;
-        assert!(pos >= 9.0 && pos <= 15.0, "Position was {pos}s after seeking to 10s");
+        assert!(
+            (9.0..=15.0).contains(&pos),
+            "Position was {pos}s after seeking to 10s"
+        );
     }
 
     // Also test seek_ms
@@ -131,7 +134,10 @@ async fn live_seek() {
 
     if let Some(track) = client.now_playing().await.unwrap() {
         let pos = track.current_playback_time;
-        assert!(pos >= 4.0 && pos <= 10.0, "Position was {pos}s after seeking to 5s");
+        assert!(
+            (4.0..=10.0).contains(&pos),
+            "Position was {pos}s after seeking to 5s"
+        );
     }
 }
 
@@ -174,8 +180,12 @@ async fn live_get_queue() {
 
         for (i, item) in queue.iter().enumerate() {
             if let Some(attrs) = &item.attributes {
-                eprintln!("  [{i}] {} - {} {}", attrs.name, attrs.artist_name,
-                    if item.is_current() { "(current)" } else { "" });
+                eprintln!(
+                    "  [{i}] {} - {} {}",
+                    attrs.name,
+                    attrs.artist_name,
+                    if item.is_current() { "(current)" } else { "" }
+                );
             }
         }
     }
@@ -205,7 +215,10 @@ async fn live_repeat_mode_toggle_and_restore() {
 
     // The three values should be distinct (0, 1, 2 in some order)
     eprintln!("Repeat cycle: {original} -> {after_1} -> {after_2} -> {after_3}");
-    assert_eq!(after_3, original, "Three toggles should return to original mode");
+    assert_eq!(
+        after_3, original,
+        "Three toggles should return to original mode"
+    );
 }
 
 #[tokio::test]
@@ -279,7 +292,10 @@ async fn live_valid_token_is_accepted() {
 
 #[tokio::test]
 async fn live_bad_token_is_rejected() {
-    let port: u16 = match std::env::var("CIDER_TEST_PORT").ok().and_then(|p| p.parse().ok()) {
+    let port: u16 = match std::env::var("CIDER_TEST_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+    {
         Some(p) => p,
         None => {
             eprintln!("Skipping: CIDER_TEST_PORT not set");
@@ -315,7 +331,10 @@ async fn live_amapi_run_v3() {
 
     // Should return valid JSON with results
     assert!(result.is_object(), "Expected JSON object, got: {result}");
-    eprintln!("AMAPI response keys: {:?}", result.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+    eprintln!(
+        "AMAPI response keys: {:?}",
+        result.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
 }
 
 // ── Stop ──
@@ -339,4 +358,131 @@ async fn live_stop_and_resume() {
     // Resume
     client.play().await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+}
+
+// ── v2 (Cider 4+) ──
+//
+// Read-only: these never change playback state. Skipped on older Cider.
+
+#[tokio::test]
+async fn live_v2_read_only() {
+    let client = skip_unless_live!();
+    let Some(info) = client.server_info().await.unwrap() else {
+        eprintln!("Skipping: this Cider has no v2 API");
+        return;
+    };
+    eprintln!("Cider {:?} on {:?}", info.version, info.platform);
+
+    let v2 = client.v2();
+    let snapshot = v2.playback().snapshot().await.unwrap();
+    eprintln!(
+        "snapshot: {:?} repeat={:?}",
+        snapshot.state, snapshot.repeat_mode
+    );
+    let _ = v2.playback().state().await.unwrap();
+    let _ = v2.playback().time().await.unwrap();
+    let _ = v2.playback().now_playing().await.unwrap();
+    let _ = v2.playback().audio_quality().await.unwrap();
+    let _ = v2.playback().rate().await.unwrap();
+    let _ = v2.playback().repeat().await.unwrap();
+    let _ = v2.playback().shuffle().await.unwrap();
+    let _ = v2.playback().autoplay().await.unwrap();
+    let _ = v2.audio().volume().await.unwrap();
+    let page = v2.queue().list(0, 5).await.unwrap();
+    let pos = v2.queue().position().await.unwrap();
+    assert_eq!(page.total, pos.total);
+    let _ = v2.queue().smart_optimizer().await.unwrap();
+    let _ = v2.library().now_playing_status().await.unwrap();
+}
+
+#[tokio::test]
+async fn live_v2_audio_settings_read_only() {
+    let client = skip_unless_live!();
+    if client.server_info().await.unwrap().is_none() {
+        return;
+    }
+    let audio = client.v2().audio();
+    let _ = audio.crossfade().await.unwrap();
+    let _ = audio.automix().await.unwrap();
+    let _ = audio.atmos().await.unwrap();
+    let _ = audio.listening_mode().await.unwrap();
+    let _ = audio.capture().await.unwrap();
+    let _ = audio.normalization().await.unwrap();
+    // Added in Cider 4.0.40.
+    match audio.radio_mode().await {
+        Ok(_) | Err(cider_api::CiderError::Unsupported) => {}
+        Err(e) => panic!("radio_mode: {e:?}"),
+    }
+}
+
+#[tokio::test]
+async fn live_v2_library_browsing() {
+    let client = skip_unless_live!();
+    if client.server_info().await.unwrap().is_none() {
+        return;
+    }
+    let library = client.v2().library();
+    let playlists = library.playlists(0, 5).await.unwrap();
+    assert!(playlists.items.len() <= 5);
+    if let Some(playlist) = playlists.items.first() {
+        let _ = library.playlist_songs(&playlist.id, 0, 5).await.unwrap();
+        let _ = client.v2().playlists().history(&playlist.id).await.unwrap();
+    }
+    let albums = library.albums(0, 5).await.unwrap();
+    if let Some(album) = albums.items.first() {
+        let _ = library.album_songs(&album.id, 0, 5).await.unwrap();
+    }
+    let artists = library.artists(0, 5).await.unwrap();
+    if let Some(artist) = artists.items.first() {
+        let _ = library.artist_albums(&artist.id, 0, 5).await.unwrap();
+    }
+    let _ = library.songs(0, 5).await.unwrap();
+    let _ = library.recently_added(0, 5).await.unwrap();
+}
+
+#[tokio::test]
+async fn live_v2_catalog_lyrics_config() {
+    use cider_api::v2::{CatalogOptions, LyricsOptions, SearchOptions};
+
+    let client = skip_unless_live!();
+    if client.server_info().await.unwrap().is_none() {
+        return;
+    }
+    let v2 = client.v2();
+
+    let options = SearchOptions {
+        types: vec!["songs".into()],
+        limit: Some(1),
+        ..Default::default()
+    };
+    let results = v2.catalog().search("daft punk", &options).await.unwrap();
+    let song_id = results["results"]["songs"]["data"][0]["id"]
+        .as_str()
+        .expect("search returned a song")
+        .to_string();
+    let song = v2
+        .catalog()
+        .get("songs", &song_id, &CatalogOptions::default())
+        .await
+        .unwrap();
+    assert_eq!(song["data"][0]["id"], song_id.as_str());
+    let _ = v2
+        .catalog()
+        .raw("v1/me/library/songs?limit=1")
+        .await
+        .unwrap();
+    let e = v2.catalog().raw("v2/not-allowed").await.unwrap_err();
+    assert_eq!(e.code(), Some("INVALID_REQUEST"));
+
+    assert!(!v2.lyrics().languages().await.unwrap().is_empty());
+    match v2.lyrics().get(&song_id, LyricsOptions::default()).await {
+        Ok(lyrics) => assert!(!lyrics.lines.is_empty()),
+        Err(e) => assert_eq!(e.code(), Some("LYRICS_NOT_FOUND"), "{e:?}"),
+    }
+
+    assert!(v2.config().await.unwrap().is_object());
+    let e = v2.config_path("definitely.not.there").await.unwrap_err();
+    assert_eq!(e.code(), Some("CONFIG_PATH_NOT_FOUND"));
+    let tokens = v2.client_tokens().await.unwrap();
+    assert!(!tokens.storefront.is_empty());
 }

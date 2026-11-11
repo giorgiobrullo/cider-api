@@ -66,15 +66,90 @@ The token is sent in the `apptoken` header on every request (no `Bearer` prefix)
 | **Status** | `is_active`, `is_playing`, `now_playing` |
 | **Playback** | `play`, `pause`, `play_pause`, `stop`, `next`, `previous`, `seek`, `seek_ms` |
 | **Play items** | `play_url`, `play_item`, `play_item_href`, `play_next`, `play_later` |
-| **Queue** | `get_queue`, `queue_move_to_position`, `queue_remove_by_index`, `clear_queue` |
+| **Queue** | `get_queue`, `queue_change_to_index`, `queue_move_to_position`, `queue_remove_by_index`, `clear_queue` |
 | **Volume** | `get_volume`, `set_volume` |
 | **Settings** | `get_repeat_mode`, `toggle_repeat`, `get_shuffle_mode`, `toggle_shuffle`, `get_autoplay`, `toggle_autoplay` |
 | **Library** | `add_to_library`, `set_rating` |
 | **Apple Music API** | `amapi_run_v3` |
 
+## Cider versions and the v2 API
+
+The methods above use Cider's v1 API, which every Cider version serves (2, 3 and 4). Cider 4 adds a much larger v2 API, available through `client.v2()`:
+
+```rust
+use cider_api::{v2::RepeatMode, CiderClient};
+
+let client = CiderClient::new().with_token("your-api-token");
+
+// `None` on Cider versions without the v2 API
+if client.server_info().await?.is_some() {
+    let v2 = client.v2();
+
+    let snapshot = v2.playback().snapshot().await?;   // state, track, time, volume in one call
+    v2.playback().set_repeat(RepeatMode::All).await?; // explicit setters, not just toggles
+
+    let queue = v2.queue().list(0, 50).await?;        // paginated queue
+    let playlists = v2.library().playlists(0, 100).await?;
+    println!("{:?}, {} queued, {} playlists", snapshot.state, queue.total, playlists.total);
+}
+```
+
+| Area | Scope | Methods |
+|---|---|---|
+| **`v2()`** | — | `client_info`, `request_auth`, `request_auth_with_image`, `client_tokens` (`account`), `config`, `config_path` (`config`) |
+| **`v2().playback()`** | `playback` | `snapshot`, `now_playing`, `state`, `time`, `audio_quality`, `play`, `pause`, `stop`, `toggle`, `next`, `previous`, `seek`, `play_item`, `play_url`, `play_href`, `play_collection`, `rate`, `set_rate`, `repeat`, `set_repeat`, `toggle_repeat`, `shuffle`, `set_shuffle`, `toggle_shuffle`, `autoplay`, `set_autoplay`, `toggle_autoplay` |
+| **`v2().queue()`** | `queue` | `list`, `position`, `jump`, `add_next`, `add_later`, `remove`, `move_item`, `clear`, `smart_optimizer`, `toggle_smart_optimizer` |
+| **`v2().audio()`** | `audio` | `volume`, `crossfade`, `automix`, `atmos`, `listening_mode`, `radio_mode`, `capture`, `normalization`, and a `set_*` for each |
+| **`v2().library()`** | `library` | `now_playing_status`, `add_now_playing`, `remove_now_playing`, `love`, `dislike`, `clear_rating`, `set_rating`, `playlists`, `playlist_songs`, `albums`, `album_songs`, `artists`, `artist_albums`, `songs`, `recently_added` |
+| **`v2().playlists()`** | `library` | `create`, `update`, `add_tracks`, `remove_tracks`, `replace_tracks`, `move_track`, `history`, `restore` |
+| **`v2().catalog()`** | `library` | `search`, `get`, `raw` (read-only Apple Music API proxy) |
+| **`v2().lyrics()`** | `lyrics` | `current`, `get`, `variations`, `variation`, `translations`, `languages` |
+
+Not covered: plugin installation and the Socket.IO event stream.
+
+### Errors
+
+On a Cider without v2, these methods return `CiderError::Unsupported`. API failures come back as `CiderError::Server { status, code, message, retry_after }`; `err.code()` gives Cider's machine-readable code:
+
+```rust
+match client.v2().audio().volume().await {
+    Ok(volume) => println!("{volume}"),
+    Err(e) if e.code() == Some("INSUFFICIENT_SCOPE") => println!("token lacks the audio scope"),
+    Err(e) => println!("{e}"),
+}
+```
+
+### Scoped tokens
+
+v2 tokens can be limited to scopes (`playback`, `queue`, `library`, `audio`, `account`, `plugins`, `config`, `lyrics`). An app can ask the user for one — Cider shows an approval prompt:
+
+```rust
+use cider_api::v2::Scope;
+
+let grant = CiderClient::new()
+    .v2()
+    .request_auth("My App", &[Scope::Playback, Scope::Queue])
+    .await?;
+let client = CiderClient::new().with_token(grant.token);
+```
+
+### Editing playlists
+
+Cider snapshots a playlist before every edit and returns the restore point, so edits can be undone:
+
+```rust
+use cider_api::v2::TrackRef;
+
+let playlists = client.v2().playlists();
+let write = playlists.add_tracks("p.abc123", &[TrackRef::song("1719861213")], true).await?;
+if let Some(snapshot) = write.snapshot_at {
+    playlists.restore("p.abc123", &snapshot).await?; // undo
+}
+```
+
 ## Response types
 
-All response types are fully typed with serde and match the [Cider RPC documentation](https://cider.sh/docs/client/rpc).
+All response types are fully typed with serde and match the [Cider RPC documentation](https://cider.gitbook.io/welcome-to-gitbook/docs/1.client/rpc).
 
 ### `NowPlaying`
 

@@ -189,7 +189,6 @@ pub struct NowPlaying {
     pub duration_in_millis: u64,
 
     // ── Identifiers ──
-
     /// Play parameters containing the song ID and kind.
     #[serde(default)]
     pub play_params: Option<PlayParams>,
@@ -203,7 +202,6 @@ pub struct NowPlaying {
     pub isrc: Option<String>,
 
     // ── Playback state (injected by Cider, not in the Apple Music catalog) ──
-
     /// Current playback position in seconds.
     #[serde(default)]
     pub current_playback_time: f64,
@@ -229,7 +227,6 @@ pub struct NowPlaying {
     pub in_library: bool,
 
     // ── Catalog metadata ──
-
     /// Genre names (e.g. `["Electronic", "Music"]`).
     #[serde(default)]
     pub genre_names: Vec<String>,
@@ -438,7 +435,6 @@ pub struct QueueItemAttributes {
     pub duration_in_millis: u64,
 
     // ── Identifiers ──
-
     /// Artwork information.
     #[serde(default)]
     pub artwork: Option<Artwork>,
@@ -456,7 +452,6 @@ pub struct QueueItemAttributes {
     pub isrc: Option<String>,
 
     // ── Catalog metadata ──
-
     /// Genre names.
     #[serde(default)]
     pub genre_names: Vec<String>,
@@ -510,7 +505,6 @@ pub struct QueueItemAttributes {
     pub previews: Vec<Preview>,
 
     // ── Playback state (injected by Cider) ──
-
     /// Current playback position in seconds.
     #[serde(default)]
     pub current_playback_time: f64,
@@ -676,10 +670,10 @@ pub struct RatingRequest {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueueMoveRequest {
-    /// Current 1-based index of the item to move.
+    /// Current 0-based index of the item to move.
     pub start_index: u32,
 
-    /// Target 1-based index.
+    /// Target 0-based index.
     pub destination_index: u32,
 
     /// If `true`, the response includes the updated queue.
@@ -690,7 +684,7 @@ pub struct QueueMoveRequest {
 /// Request body for `POST /queue/remove-by-index`.
 #[derive(Debug, Clone, Serialize)]
 pub struct QueueRemoveRequest {
-    /// 1-based index of the item to remove.
+    /// 0-based index of the item in the full queue.
     pub index: u32,
 }
 
@@ -814,27 +808,21 @@ mod tests {
 
     #[test]
     fn now_playing_artwork_url_delegates() {
-        let track: NowPlaying = serde_json::from_str(
-            r#"{"artwork": {"url": "https://example.com/{w}x{h}bb.jpg"}}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            track.artwork_url(600),
-            "https://example.com/600x600bb.jpg"
-        );
+        let track: NowPlaying =
+            serde_json::from_str(r#"{"artwork": {"url": "https://example.com/{w}x{h}bb.jpg"}}"#)
+                .unwrap();
+        assert_eq!(track.artwork_url(600), "https://example.com/600x600bb.jpg");
     }
 
     #[test]
     fn queue_item_is_current_true() {
-        let item: QueueItem =
-            serde_json::from_str(r#"{"_state": {"current": 2}}"#).unwrap();
+        let item: QueueItem = serde_json::from_str(r#"{"_state": {"current": 2}}"#).unwrap();
         assert!(item.is_current());
     }
 
     #[test]
     fn queue_item_is_current_false_when_not_2() {
-        let item: QueueItem =
-            serde_json::from_str(r#"{"_state": {"current": 1}}"#).unwrap();
+        let item: QueueItem = serde_json::from_str(r#"{"_state": {"current": 1}}"#).unwrap();
         assert!(!item.is_current());
     }
 

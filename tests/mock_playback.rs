@@ -21,7 +21,12 @@ macro_rules! test_fire_and_forget {
 
 test_fire_and_forget!(play_ok, play, "POST", "/api/v1/playback/play");
 test_fire_and_forget!(pause_ok, pause, "POST", "/api/v1/playback/pause");
-test_fire_and_forget!(play_pause_ok, play_pause, "POST", "/api/v1/playback/playpause");
+test_fire_and_forget!(
+    play_pause_ok,
+    play_pause,
+    "POST",
+    "/api/v1/playback/playpause"
+);
 test_fire_and_forget!(stop_ok, stop, "POST", "/api/v1/playback/stop");
 test_fire_and_forget!(next_ok, next, "POST", "/api/v1/playback/next");
 test_fire_and_forget!(previous_ok, previous, "POST", "/api/v1/playback/previous");

@@ -116,10 +116,7 @@ async fn now_playing_returns_track() {
     assert_eq!(track.name, "Never Be Like You");
     assert_eq!(track.artist_name, "Flume");
     assert_eq!(track.song_id(), Some("1719861213"));
-    assert_eq!(
-        track.artwork_url(300),
-        "https://example.com/300x300bb.jpg"
-    );
+    assert_eq!(track.artwork_url(300), "https://example.com/300x300bb.jpg");
 }
 
 #[tokio::test]
