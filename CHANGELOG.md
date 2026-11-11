@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-11-11
 
 Adds support for the v2 API introduced in Cider 4. The existing v1 methods are
 unchanged and keep working on Cider 2, 3 and 4. Tested against Cider 4.0.40.
@@ -53,6 +53,6 @@ unchanged and keep working on Cider 2, 3 and 4. Tested against Cider 4.0.40.
 
 Initial release.
 
-[0.2.0]: https://github.com/giorgiobrullo/cider-api/compare/v0.1.1...HEAD
+[0.2.0]: https://github.com/giorgiobrullo/cider-api/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/giorgiobrullo/cider-api/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/giorgiobrullo/cider-api/releases/tag/v0.1.0

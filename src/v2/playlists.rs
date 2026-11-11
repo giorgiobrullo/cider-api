@@ -31,6 +31,21 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(125);
 /// [`restore`](Self::restore) to undo. Only the last few snapshots are kept
 /// (10 by default). There is deliberately no way to delete a playlist.
 ///
+/// # Consistency
+///
+/// Observed on Cider 4.0:
+///
+/// - [`PlaylistWrite::track_count`] is Cider's own count. Apple Music
+///   applies the write a few seconds later, so
+///   [`Library::playlist_songs`](super::Library::playlist_songs) can lag
+///   behind it.
+/// - A catalog track added with `allow_library_import` gets a library ID
+///   (`i.…`) that stops working once the track is removed from the
+///   playlist. Later writes that reference such an ID are accepted but
+///   skip the track — this includes [`restore`](Self::restore) to a
+///   snapshot that contains it. Reference tracks by catalog ID
+///   ([`TrackRef::song`](super::TrackRef::song)) when in doubt.
+///
 /// # Errors
 ///
 /// Besides the usual failures, edits return [`CiderError::Server`] with:
