@@ -865,3 +865,24 @@ async fn request_auth_with_image_sends_image() {
         .unwrap();
     assert!(grant.origins.is_empty());
 }
+
+#[tokio::test]
+async fn request_auth_waits_longer_than_the_default_timeout() {
+    let (server, client) = common::setup().await;
+    // The client's default request timeout is 2 s; the auth prompt can take minutes.
+    Mock::given(method("POST"))
+        .and(path("/api/v2/auth/request"))
+        .respond_with(
+            ok(json!({ "token": "abc", "scopes": ["playback"] }))
+                .set_delay(std::time::Duration::from_secs(3)),
+        )
+        .mount(&server)
+        .await;
+
+    let grant = client
+        .v2()
+        .request_auth("My App", &[Scope::Playback])
+        .await
+        .unwrap();
+    assert_eq!(grant.token, "abc");
+}
